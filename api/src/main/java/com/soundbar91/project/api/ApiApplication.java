@@ -3,7 +3,7 @@ package com.soundbar91.project.api;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = "com.soundbar91.project")
 public class ApiApplication {
 
     public static void main(String[] args) {
