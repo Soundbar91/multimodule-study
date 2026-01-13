@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.soundbar91.project.core.service.HelloService;
+import com.soundbar91.domain.service.HelloService;
 
 import lombok.RequiredArgsConstructor;
 
