@@ -6,7 +6,7 @@ plugins {
 
 group = project.findProperty('projectGroup') ?: 'com.soundbar91'
 version = project.findProperty('projectVersion') ?: '0.0.1-SNAPSHOT'
-description = 'multi module architecture study'
+description = 'nuga'
 
 subprojects {
 	apply plugin: 'java'

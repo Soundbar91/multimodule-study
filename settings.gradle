@@ -1,4 +1,4 @@
-rootProject.name = 'multi-module-architecture-study'
+rootProject.name = 'nuga'
 
 // Phase 2: 계층형 모듈 (기존 유지)
 include 'common'
