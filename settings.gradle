@@ -16,3 +16,8 @@ include 'user-domain:user-infrastructure'
 include 'shop-domain:shop-api'
 include 'shop-domain:shop-service'
 include 'shop-domain:shop-infrastructure'
+
+// Order Domain
+include 'order-domain:order-api'
+include 'order-domain:order-service'
+include 'order-domain:order-infrastructure'
