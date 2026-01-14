@@ -11,3 +11,8 @@ include 'api'
 include 'user-domain:user-api'
 include 'user-domain:user-service'
 include 'user-domain:user-infrastructure'
+
+// Shop Domain
+include 'shop-domain:shop-api'
+include 'shop-domain:shop-service'
+include 'shop-domain:shop-infrastructure'
