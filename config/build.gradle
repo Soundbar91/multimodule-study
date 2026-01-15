@@ -1,0 +1,17 @@
+// config 모듈: 환경별 설정 관리
+// 이 모듈은 라이브러리로 사용되며, 다른 모듈에서 의존성으로 추가하여 공통 설정을 사용합니다.
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+
+    // Configuration Processor for @ConfigurationProperties
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    // Optional: Spring Cloud Config (주석 처리, 필요시 활성화)
+    // implementation 'org.springframework.cloud:spring-cloud-starter-config'
+}
+
+// Library module: produces jar only
+jar {
+    enabled = true
+}

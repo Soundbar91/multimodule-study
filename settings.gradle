@@ -24,3 +24,6 @@ include 'order-domain:order-infrastructure'
 
 // Phase 4: Integration Test Module
 include 'integration-test'
+
+// Phase 5: Configuration Management Module
+include 'config'
