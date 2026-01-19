@@ -27,3 +27,6 @@ include 'integration-test'
 
 // Phase 5: Configuration Management Module
 include 'config'
+
+// Phase 5.2: Security Module
+include 'security-common'
