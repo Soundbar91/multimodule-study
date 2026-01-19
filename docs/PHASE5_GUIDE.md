@@ -473,9 +473,519 @@ ENTRYPOINT ["java", "-jar", "/app/api.jar"]
 
 ---
 
-## 9. 다음 단계
+# Phase 5.2: 보안 및 인증 모듈
 
-Phase 5.1 완료 후 다음 학습 방향:
-1. **Phase 5.2**: 보안 및 인증 모듈 (security-common)
-2. **Phase 5.3**: 테스트 전략 (test-common 모듈)
-3. **Phase 5.4**: 모니터링 및 로깅 (monitoring-common)
+## 학습 목표
+- 공통 보안 설정 모듈화
+- JWT 인증 모듈 분리
+- Spring Security 설정 공유
+- 도메인 간 보안 모듈 재사용
+
+---
+
+## 1. security-common 모듈 구조
+
+### 1.1 디렉토리 구조
+```
+security-common/
+├── build.gradle
+└── src/main/
+    ├── java/com/soundbar91/security/
+    │   ├── config/
+    │   │   ├── SecurityAutoConfiguration.java    # 자동 구성
+    │   │   └── SecurityConfig.java               # Security 설정
+    │   ├── jwt/
+    │   │   ├── JwtProperties.java                # JWT 설정 속성
+    │   │   ├── JwtTokenProvider.java             # 토큰 생성/검증
+    │   │   ├── JwtAuthenticationFilter.java      # 인증 필터
+    │   │   ├── JwtAuthenticationEntryPoint.java  # 인증 실패 처리
+    │   │   ├── JwtAccessDeniedHandler.java       # 권한 거부 처리
+    │   │   └── TokenResponse.java                # 토큰 응답 DTO
+    │   ├── exception/
+    │   │   ├── AuthErrorCode.java                # 인증 에러 코드
+    │   │   └── AuthenticationException.java      # 인증 예외
+    │   └── util/
+    │       └── SecurityUtils.java                # 보안 유틸리티
+    └── resources/
+        └── META-INF/spring/
+            └── org.springframework.boot.autoconfigure.AutoConfiguration.imports
+```
+
+### 1.2 build.gradle 설정
+```groovy
+// security-common/build.gradle
+dependencies {
+    implementation project(':common')
+    implementation project(':config')
+
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    // JWT
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    // Configuration Processor
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+}
+
+jar {
+    enabled = true
+}
+```
+
+---
+
+## 2. JWT 토큰 관리
+
+### 2.1 JWT 설정 속성
+```java
+@ConfigurationProperties(prefix = "jwt")
+public record JwtProperties(
+        String secret,
+        long accessTokenExpiration,
+        long refreshTokenExpiration,
+        String issuer
+) {
+    public JwtProperties {
+        if (secret == null || secret.isBlank()) {
+            secret = "default-secret-key-for-development-only";
+        }
+        if (accessTokenExpiration <= 0) {
+            accessTokenExpiration = 3600000L; // 1시간
+        }
+        if (refreshTokenExpiration <= 0) {
+            refreshTokenExpiration = 604800000L; // 7일
+        }
+        if (issuer == null || issuer.isBlank()) {
+            issuer = "nuga";
+        }
+    }
+}
+```
+
+### 2.2 application.yml JWT 설정
+```yaml
+# JWT 설정
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-for-development}
+  access-token-expiration: ${JWT_ACCESS_EXPIRATION:3600000}  # 1시간
+  refresh-token-expiration: ${JWT_REFRESH_EXPIRATION:604800000}  # 7일
+  issuer: ${JWT_ISSUER:nuga}
+```
+
+### 2.3 JwtTokenProvider
+```java
+public class JwtTokenProvider {
+
+    private static final String AUTHORITIES_KEY = "auth";
+    private final SecretKey secretKey;
+    private final JwtProperties jwtProperties;
+
+    public JwtTokenProvider(JwtProperties jwtProperties) {
+        this.jwtProperties = jwtProperties;
+        this.secretKey = Keys.hmacShaKeyFor(
+            jwtProperties.secret().getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    // Access Token 생성
+    public String createAccessToken(Authentication authentication) {
+        return createToken(authentication, jwtProperties.accessTokenExpiration());
+    }
+
+    // Refresh Token 생성
+    public String createRefreshToken(Authentication authentication) {
+        return createToken(authentication, jwtProperties.refreshTokenExpiration());
+    }
+
+    // 토큰에서 인증 정보 추출
+    public Authentication getAuthentication(String token) {
+        Claims claims = parseClaims(token);
+        Collection<? extends GrantedAuthority> authorities =
+            Arrays.stream(claims.get(AUTHORITIES_KEY, String.class).split(","))
+                .filter(auth -> !auth.isBlank())
+                .map(SimpleGrantedAuthority::new)
+                .collect(Collectors.toList());
+
+        User principal = new User(claims.getSubject(), "", authorities);
+        return new UsernamePasswordAuthenticationToken(principal, token, authorities);
+    }
+
+    // 토큰 유효성 검증
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token);
+            return true;
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+}
+```
+
+---
+
+## 3. Spring Security 설정
+
+### 3.1 SecurityConfig
+```java
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    private final JwtTokenProvider jwtTokenProvider;
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(AbstractHttpConfigurer::disable)
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .sessionManagement(session ->
+                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            )
+            .exceptionHandling(exception -> exception
+                .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+                .accessDeniedHandler(jwtAccessDeniedHandler)
+            )
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers(
+                    "/api/auth/**",
+                    "/api/public/**",
+                    "/actuator/health",
+                    "/swagger-ui/**",
+                    "/v3/api-docs/**"
+                ).permitAll()
+                .anyRequest().authenticated()
+            )
+            .addFilterBefore(
+                new JwtAuthenticationFilter(jwtTokenProvider),
+                UsernamePasswordAuthenticationFilter.class
+            );
+
+        return http.build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+```
+
+### 3.2 JWT 인증 필터
+```java
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final String AUTHORIZATION_HEADER = "Authorization";
+    private static final String BEARER_PREFIX = "Bearer ";
+
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+    ) throws ServletException, IOException {
+        String token = resolveToken(request);
+
+        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+            Authentication authentication = jwtTokenProvider.getAuthentication(token);
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+        }
+
+        filterChain.doFilter(request, response);
+    }
+
+    private String resolveToken(HttpServletRequest request) {
+        String bearerToken = request.getHeader(AUTHORIZATION_HEADER);
+        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith(BEARER_PREFIX)) {
+            return bearerToken.substring(BEARER_PREFIX.length());
+        }
+        return null;
+    }
+}
+```
+
+---
+
+## 4. 예외 처리
+
+### 4.1 인증 에러 코드
+```java
+public enum AuthErrorCode {
+
+    // 인증 관련
+    INVALID_TOKEN("AUTH001", "유효하지 않은 토큰입니다."),
+    EXPIRED_TOKEN("AUTH002", "만료된 토큰입니다."),
+    UNSUPPORTED_TOKEN("AUTH003", "지원하지 않는 토큰 형식입니다."),
+    EMPTY_TOKEN("AUTH004", "토큰이 비어있습니다."),
+
+    // 인가 관련
+    ACCESS_DENIED("AUTH005", "접근 권한이 없습니다."),
+    INSUFFICIENT_AUTHORITY("AUTH006", "권한이 부족합니다."),
+
+    // 로그인 관련
+    INVALID_CREDENTIALS("AUTH007", "아이디 또는 비밀번호가 올바르지 않습니다."),
+    ACCOUNT_DISABLED("AUTH008", "비활성화된 계정입니다."),
+    ACCOUNT_LOCKED("AUTH009", "잠긴 계정입니다.");
+
+    private final String code;
+    private final String message;
+    // ...
+}
+```
+
+### 4.2 인증 예외 응답 (401)
+```java
+public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
+
+    @Override
+    public void commence(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AuthenticationException authException
+    ) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+
+        Map<String, Object> errorResponse = Map.of(
+            "timestamp", LocalDateTime.now().toString(),
+            "status", 401,
+            "error", "Unauthorized",
+            "message", "인증이 필요합니다.",
+            "path", request.getRequestURI()
+        );
+
+        new ObjectMapper().writeValue(response.getOutputStream(), errorResponse);
+    }
+}
+```
+
+---
+
+## 5. 보안 유틸리티
+
+### 5.1 SecurityUtils
+```java
+public final class SecurityUtils {
+
+    // 현재 인증된 사용자명 조회
+    public static Optional<String> getCurrentUsername() {
+        Authentication authentication =
+            SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return Optional.empty();
+        }
+
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof UserDetails userDetails) {
+            return Optional.of(userDetails.getUsername());
+        }
+        return Optional.empty();
+    }
+
+    // 인증 여부 확인
+    public static boolean isAuthenticated() {
+        Authentication authentication =
+            SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null
+            && authentication.isAuthenticated()
+            && !"anonymousUser".equals(authentication.getPrincipal());
+    }
+
+    // 특정 역할 보유 여부 확인
+    public static boolean hasRole(String role) {
+        Authentication authentication =
+            SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) return false;
+
+        String roleWithPrefix = role.startsWith("ROLE_") ? role : "ROLE_" + role;
+        return authentication.getAuthorities().stream()
+            .anyMatch(auth -> auth.getAuthority().equals(roleWithPrefix));
+    }
+}
+```
+
+---
+
+## 6. 도메인 모듈 연동
+
+### 6.1 의존성 추가
+```groovy
+// api/build.gradle
+dependencies {
+    implementation project(':security-common')
+    // ...
+}
+```
+
+### 6.2 settings.gradle 등록
+```groovy
+// settings.gradle
+include 'security-common'
+```
+
+### 6.3 Auto Configuration
+security-common 모듈은 Auto Configuration을 통해 자동으로 설정됩니다.
+
+```
+// META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+com.soundbar91.security.config.SecurityAutoConfiguration
+```
+
+### 6.4 커스텀 Security 설정 (선택)
+필요한 경우 도메인별로 Security 설정을 오버라이드할 수 있습니다.
+
+```java
+@Configuration
+public class CustomSecurityConfig {
+
+    @Bean
+    public SecurityFilterChain customSecurityFilterChain(HttpSecurity http) {
+        // 커스텀 설정...
+    }
+}
+```
+
+---
+
+## 7. 사용 예시
+
+### 7.1 로그인 API 구현 예시
+```java
+@RestController
+@RequestMapping("/api/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final AuthenticationManager authenticationManager;
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @PostMapping("/login")
+    public TokenResponse login(@RequestBody LoginRequest request) {
+        Authentication authentication = authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(
+                request.username(),
+                request.password()
+            )
+        );
+
+        String accessToken = jwtTokenProvider.createAccessToken(authentication);
+        String refreshToken = jwtTokenProvider.createRefreshToken(authentication);
+
+        return new TokenResponse(accessToken, refreshToken, 3600000L);
+    }
+}
+```
+
+### 7.2 권한 기반 접근 제어
+```java
+@RestController
+@RequestMapping("/api/admin")
+public class AdminController {
+
+    @GetMapping("/users")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<UserResponse> getAllUsers() {
+        // ADMIN 역할만 접근 가능
+    }
+
+    @DeleteMapping("/users/{id}")
+    @PreAuthorize("hasAuthority('USER_DELETE')")
+    public void deleteUser(@PathVariable Long id) {
+        // USER_DELETE 권한만 접근 가능
+    }
+}
+```
+
+### 7.3 현재 사용자 정보 활용
+```java
+@Service
+@RequiredArgsConstructor
+public class OrderService {
+
+    public Order createOrder(OrderRequest request) {
+        String username = SecurityUtils.getCurrentUsernameOrThrow();
+        // 현재 로그인한 사용자로 주문 생성
+    }
+}
+```
+
+---
+
+## 8. 체크리스트
+
+### 8.1 모듈 구성
+- [x] security-common 모듈 생성
+- [x] settings.gradle에 모듈 등록
+- [x] build.gradle 의존성 설정
+
+### 8.2 JWT 구현
+- [x] JwtProperties 설정 클래스
+- [x] JwtTokenProvider 토큰 생성/검증
+- [x] JwtAuthenticationFilter 인증 필터
+- [x] TokenResponse DTO
+
+### 8.3 Security 설정
+- [x] SecurityConfig 기본 설정
+- [x] CORS 설정
+- [x] 세션 정책 (STATELESS)
+- [x] PasswordEncoder (BCrypt)
+
+### 8.4 예외 처리
+- [x] JwtAuthenticationEntryPoint (401)
+- [x] JwtAccessDeniedHandler (403)
+- [x] AuthErrorCode enum
+- [x] AuthenticationException
+
+### 8.5 유틸리티
+- [x] SecurityUtils 구현
+- [x] 현재 사용자 조회
+- [x] 권한 확인 메서드
+
+### 8.6 연동
+- [x] api 모듈에 의존성 추가
+- [x] application.yml JWT 설정
+- [x] Auto Configuration 등록
+
+---
+
+## 9. 주의사항
+
+### 9.1 JWT Secret 관리
+- 프로덕션에서는 반드시 환경 변수로 주입
+- 최소 256비트 (32자) 이상의 시크릿 키 사용
+- 절대 소스 코드에 실제 시크릿 키 커밋 금지
+
+### 9.2 토큰 만료 시간
+| 토큰 타입 | 권장 만료 시간 | 용도 |
+|----------|---------------|------|
+| Access Token | 15분 ~ 1시간 | API 인증 |
+| Refresh Token | 7일 ~ 30일 | 토큰 갱신 |
+
+### 9.3 보안 권장사항
+- HTTPS 필수 사용
+- Refresh Token은 HttpOnly 쿠키로 전달 권장
+- Token Blacklist 구현 고려 (로그아웃 시)
+- Rate Limiting 적용
+
+---
+
+## 10. 다음 단계
+
+Phase 5.2 완료 후 다음 학습 방향:
+1. **Phase 5.3**: 테스트 전략 (test-common 모듈)
+2. **Phase 5.4**: 모니터링 및 로깅 (monitoring-common)
