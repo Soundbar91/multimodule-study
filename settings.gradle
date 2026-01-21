@@ -30,3 +30,8 @@ include 'config'
 
 // Phase 5.2: Security Module
 include 'security-common'
+
+// Payment Domain
+include 'payment-domain:payment-api'
+include 'payment-domain:payment-service'
+include 'payment-domain:payment-infrastructure'

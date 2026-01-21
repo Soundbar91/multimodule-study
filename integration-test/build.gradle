@@ -24,6 +24,10 @@ dependencies {
     testImplementation project(':order-domain:order-service')
     testImplementation project(':order-domain:order-infrastructure')
 
+    testImplementation project(':payment-domain:payment-api')
+    testImplementation project(':payment-domain:payment-service')
+    testImplementation project(':payment-domain:payment-infrastructure')
+
     // Spring Boot Test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-web'
