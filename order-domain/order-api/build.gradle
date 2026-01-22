@@ -10,6 +10,11 @@ dependencies {
     implementation project(':order-domain:order-infrastructure')
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-autoconfigure'
+
+    // Test dependencies
+    testImplementation project(':test-common')
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
 }
 
 // Library module: produces jar, not bootJar (used by main api module)

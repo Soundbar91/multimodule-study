@@ -11,6 +11,9 @@ dependencies {
     implementation 'org.springframework:spring-context'
 
     compileOnly 'jakarta.persistence:jakarta.persistence-api'
+
+    // Test dependencies
+    testImplementation project(':test-common')
 }
 
 // Library module: produces jar, not bootJar

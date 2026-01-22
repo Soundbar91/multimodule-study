@@ -35,3 +35,6 @@ include 'security-common'
 include 'payment-domain:payment-api'
 include 'payment-domain:payment-service'
 include 'payment-domain:payment-infrastructure'
+
+// Test Common Module
+include 'test-common'

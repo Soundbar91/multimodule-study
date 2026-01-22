@@ -33,5 +33,6 @@ bootJar {
 }
 
 jar {
-	enabled = false
+	enabled = true
+	archiveBaseName = 'api-lib'
 }

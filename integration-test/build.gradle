@@ -28,6 +28,9 @@ dependencies {
     testImplementation project(':payment-domain:payment-service')
     testImplementation project(':payment-domain:payment-infrastructure')
 
+    // Test common module
+    testImplementation project(':test-common')
+
     // Spring Boot Test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-web'

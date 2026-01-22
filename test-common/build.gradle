@@ -1,0 +1,23 @@
+plugins {
+    id 'java-library'
+}
+
+version = rootProject.findProperty('projectVersion') ?: '0.0.1-SNAPSHOT'
+
+dependencies {
+    // Domain modules for fixtures
+    api project(':user-domain:user-service')
+    api project(':shop-domain:shop-service')
+    api project(':order-domain:order-service')
+    api project(':payment-domain:payment-service')
+
+    // Test utilities
+    api 'org.springframework.boot:spring-boot-starter-test'
+    api 'org.assertj:assertj-core'
+}
+
+// Library module: no bootJar needed
+jar {
+    enabled = true
+    archiveBaseName = 'test-common'
+}
